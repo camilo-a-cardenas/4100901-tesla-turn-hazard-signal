@@ -93,6 +93,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     static uint16_t last_pressed = 0xFFFF;
     static uint32_t last_tick = 0;
 
+
+
+
     // Debouncing
     if (last_pressed == GPIO_Pin) {
         if (HAL_GetTick() < (last_tick + 200)) {
@@ -127,6 +130,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     } else if (GPIO_Pin == S1_Pin) {
         right_toggles = 0;  // Solo detener la señal si es S1 (no S3)
     }
+
+
+
 
     if (GPIO_Pin == S3_Pin) {
         HAL_UART_Transmit(&huart2, (uint8_t *)"S3\r\n", 4, 10);
