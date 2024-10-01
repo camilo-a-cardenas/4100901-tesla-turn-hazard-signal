@@ -45,7 +45,9 @@ UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 uint32_t left_toggles = 0;
+uint32_t right_toggles = 0;
 uint32_t left_last_press_tick = 0;
+uint32_t right_last_press_tick = 0;
 
 uint8_t data_usart3;
 uint8_t data_usart2;
@@ -88,63 +90,61 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	static uint16_t last_pressed = 0xFFFF;
-	static uint32_t last_tick = 0;
+    static uint16_t last_pressed = 0xFFFF;
+    static uint32_t last_tick = 0;
 
-	if (last_pressed == GPIO_Pin) {
-		if (HAL_GetTick() < (last_tick + 200)) {
-			return;
-		}
-	}
-	last_pressed = GPIO_Pin;
-	last_tick = HAL_GetTick();
+    // Debouncing
+    if (last_pressed == GPIO_Pin) {
+        if (HAL_GetTick() < (last_tick + 200)) {
+            return;
+        }
+    }
+    last_pressed = GPIO_Pin;
+    last_tick = HAL_GetTick();
 
-	uint8_t key_pressed = 0xFF;
-	switch (GPIO_Pin) {
-	case COLUMN1_Pin:
-		HAL_GPIO_WritePin(ROW1_GPIO_Port, ROW1_Pin, GPIO_PIN_RESET);
-		if (HAL_GPIO_ReadPin(COLUMN1_GPIO_Port, COLUMN1_Pin) == 0) {
-			key_pressed = '1';
-			break;
-		}
-		HAL_GPIO_WritePin(ROW2_GPIO_Port, ROW2_Pin, GPIO_PIN_RESET);
-		if (HAL_GPIO_ReadPin(COLUMN1_GPIO_Port, COLUMN1_Pin) == 0) {
-			key_pressed = '4';
-			break;
-		}
-		HAL_GPIO_WritePin(ROW3_GPIO_Port, ROW3_Pin, GPIO_PIN_RESET);
-		if (HAL_GPIO_ReadPin(COLUMN1_GPIO_Port, COLUMN1_Pin) == 0) {
-			key_pressed = '7';
-			break;
-		}
-		HAL_GPIO_WritePin(ROW4_GPIO_Port, ROW4_Pin, GPIO_PIN_RESET);
-		if (HAL_GPIO_ReadPin(COLUMN1_GPIO_Port, COLUMN1_Pin) == 0) {
-			key_pressed = '*';
-			break;
-		}
-		break;
-	default:
-		break;
-	}
+    // Control del botón izquierdo (S1)
+    if (GPIO_Pin == S1_Pin) {
+        HAL_UART_Transmit(&huart2, (uint8_t *)"S1\r\n", 4, 10);
+        if (HAL_GetTick() < (left_last_press_tick + 300)) {
+            left_toggles = 0xFFFFFF;  // Presión larga
+        } else {
+            left_toggles = 6;  // Presión corta
+        }
+        left_last_press_tick = HAL_GetTick();
+    } else if (GPIO_Pin == S2_Pin || GPIO_Pin == S3_Pin) {
+        left_toggles = 0;  // Detener la señal izquierda si S2 es presionado
+    }
 
-	HAL_GPIO_WritePin(ROW1_GPIO_Port, ROW1_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(ROW2_GPIO_Port, ROW2_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(ROW3_GPIO_Port, ROW3_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(ROW4_GPIO_Port, ROW4_Pin, GPIO_PIN_SET);
-	HAL_UART_Transmit(&huart2, &key_pressed, 1, 10);
+    // Control del botón derecho (S2)
+    if (GPIO_Pin == S2_Pin) {
+        HAL_UART_Transmit(&huart2, (uint8_t *)"S2\r\n", 4, 10);
+        if (HAL_GetTick() < (right_last_press_tick + 300)) {
+            right_toggles = 0xFFFFFF;
+        } else {
+            right_toggles = 6;
+        }
+        right_last_press_tick = HAL_GetTick();
+    } else if (GPIO_Pin == S1_Pin) {
+        right_toggles = 0;  // Solo detener la señal si es S1 (no S3)
+    }
 
-	if (GPIO_Pin == S1_Pin) {
-		HAL_UART_Transmit(&huart2, (uint8_t *)"S1\r\n", 4, 10);
-		if (HAL_GetTick() < (left_last_press_tick + 300)) { // if last press was in the last 300ms
-			left_toggles = 0xFFFFFF; // a long time toggling (infinite)
-		} else {
-			left_toggles = 6;
-		}
-		left_last_press_tick = HAL_GetTick();
-	} else if (GPIO_Pin == S2_Pin) {
-		left_toggles = 0;
-	}
-}
+    if (GPIO_Pin == S3_Pin) {
+        HAL_UART_Transmit(&huart2, (uint8_t *)"S3\r\n", 4, 10);
+        if (HAL_GetTick() < (right_last_press_tick + 300)) {
+            right_toggles = 0xFFFFFF;
+            left_toggles = 0xFFFFFF;
+        } else {
+            right_toggles = 6;
+            left_toggles = 6;
+        }
+        left_last_press_tick = HAL_GetTick();
+        right_last_press_tick = HAL_GetTick();
+    }
+
+    }
+
+
+
 
 void heartbeat(void)
 {
@@ -165,6 +165,20 @@ void turn_signal_left(void)
 			left_toggles--;
 		} else {
 			HAL_GPIO_WritePin(D3_GPIO_Port, D3_Pin, 1);
+		}
+
+	}
+}
+void turn_signal_right(void)
+{
+	static uint32_t turn_toggle_tick = 0;
+	if (turn_toggle_tick < HAL_GetTick()) {
+		if (right_toggles > 0) {
+			turn_toggle_tick = HAL_GetTick() + 500;
+			HAL_GPIO_TogglePin(D4_GPIO_Port, D4_Pin);
+			right_toggles--;
+		} else {
+			HAL_GPIO_WritePin(D4_GPIO_Port, D4_Pin, 1);
 		}
 
 	}
@@ -239,6 +253,7 @@ int main(void)
 	  }
 	  heartbeat();
 	  turn_signal_left();
+	  turn_signal_right();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -401,6 +416,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : S3_Pin */
+  GPIO_InitStruct.Pin = S3_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(S3_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pin : COLUMN1_Pin */
   GPIO_InitStruct.Pin = COLUMN1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
@@ -427,6 +448,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
